@@ -21,7 +21,7 @@ func New(root string) (*Repository, error) {
 	if err != nil {
 		return nil, fmt.Errorf("resolve data root: %w", err)
 	}
-	for _, name := range []string{"takes", "analyses", "conforms", "conforms/assets", "tmp"} {
+	for _, name := range []string{"takes", "analyses", "conforms", "conforms/assets", "programs", "programs/assets", "tmp"} {
 		if err := os.MkdirAll(filepath.Join(absolute, name), 0o750); err != nil {
 			return nil, fmt.Errorf("create data namespace %s: %w", name, err)
 		}

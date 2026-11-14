@@ -103,6 +103,28 @@
         "media",
         "storage"
       ]
+    },
+    {
+      "id": "render-program",
+      "name": "Join segments into a conform program",
+      "entry": "POST /v1/conform-programs",
+      "steps": [
+        "Validate the program id, correction ceiling, segment count, and half-open picture ranges",
+        "Resolve one distinct ready analysis and source take per segment and require matching geometry",
+        "Align each segment by its own measured offset on one cumulative sample timeline",
+        "Join audio and picture into continuous streams and record per-segment source placement",
+        "Commit the ZIP and receipt through one atomic directory rename"
+      ],
+      "success": "Returns a completed program whose receipt traces every segment to its source take and interval.",
+      "failure": "Returns a terminal failed program with a stable code and no readable or partial bundle.",
+      "verification": "The program check joins three differently offset materials, re-analyzes each delivered segment, proves frame-boundary splits are byte-identical to the whole take, and confirms failures expose no bundle.",
+      "module_ids": [
+        "httpapi",
+        "service",
+        "domain",
+        "media",
+        "storage"
+      ]
     }
   ]
 }

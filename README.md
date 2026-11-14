@@ -11,7 +11,10 @@ The implementation includes:
 - audio-onset and picture-flash detection with a confidence value;
 - signed drift analysis and a stable threshold policy;
 - sample-accurate audio alignment;
-- durable take, analysis, and conform states;
+- multi-segment conform programs that join several received materials, in
+  review order, into one continuous audio/picture bundle on a shared sample
+  timeline, with each segment keeping its own sync basis;
+- durable take, analysis, conform, and program states;
 - per-identifier locking and atomic directory publication;
 - a deterministic ZIP bundle with a matching receipt.
 
@@ -127,6 +130,60 @@ video-conformed.y4m
 conform-receipt.json
 ```
 
+### Render a multi-segment conform program
+
+`POST /v1/conform-programs`
+
+A program joins several already-received materials, in review order, into one
+continuous picture stream and one continuous audio track. Every segment keeps
+its own ready analysis as its sync basis, so each piece is corrected with the
+offset measured for that material. Segment boundaries are derived from one
+cumulative sample timeline, so rounding each segment independently can never
+add or drop audio at a junction or accumulate drift as the segment count grows.
+
+```json
+{
+  "program_id": "review-reel-01",
+  "max_correction_ms": 500,
+  "segments": [
+    {
+      "analysis_id": "sync-check-a",
+      "range": {"start_frame": 0, "end_frame": 120}
+    },
+    {
+      "analysis_id": "sync-check-b"
+    }
+  ]
+}
+```
+
+- `range` is an optional half-open picture interval (`start_frame` inclusive,
+  `end_frame` exclusive). Omitting it uses the whole take; a partially
+  specified range fills from frame zero or through the final frame.
+- Each `analysis_id` must reference a distinct ready analysis.
+- All segments must share sample rate, channel count, picture geometry, frame
+  rate, and chroma.
+- A repeated identical request is idempotent and returns the same record.
+
+The response is a terminal `completed` or `failed` program. A failed program
+exposes no bundle route. The completed archive contains:
+
+```text
+audio-program.wav
+video-program.y4m
+conform-program-receipt.json
+```
+
+The receipt lists every segment with its source take, source picture interval,
+measured and applied offset, applied samples, and its placement on the output
+timeline, so each delivered frame and audio window can be traced back to the
+exact source material and interval.
+
+### Read a conform program
+
+- `GET /v1/conform-programs/{program_id}`
+- `GET /v1/conform-programs/{program_id}/bundle`
+
 ## Data layout
 
 ```text
@@ -140,6 +197,10 @@ var/sync-conformer/
 │   └── <analysis_id>.json
 ├── conforms/
 │   └── <conform_id>/
+│       ├── record.json
+│       └── bundle.zip
+├── programs/
+│   └── <program_id>/
 │       ├── record.json
 │       └── bundle.zip
 └── tmp/
@@ -168,12 +229,19 @@ Run one workflow at a time:
 go run ./cmd/syncflowcheck -workflow admit-take
 go run ./cmd/syncflowcheck -workflow analyze-sync
 go run ./cmd/syncflowcheck -workflow render-conform
+go run ./cmd/syncflowcheck -workflow render-program
 ```
 
 Each check starts the real loopback HTTP service, generates a bounded
 calibration pair through the production media package, completes the named
 workflow, and verifies persisted state or artifact bytes. The temporary data
 root is removed when the process exits.
+
+The `render-program` check builds a three-segment program from materials with
+different signed offsets, re-analyzes each delivered segment to confirm it
+stays in sync, proves that splitting one take at a frame boundary yields
+byte-identical audio and picture to the whole take, and verifies that failed
+and invalid programs never expose a partial bundle.
 
 ## Media boundaries
 

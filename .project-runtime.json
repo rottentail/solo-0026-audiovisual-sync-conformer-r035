@@ -18,6 +18,10 @@
     {
       "workflow_id": "render-conform",
       "command": "go run ./cmd/syncflowcheck -workflow render-conform"
+    },
+    {
+      "workflow_id": "render-program",
+      "command": "go run ./cmd/syncflowcheck -workflow render-program"
     }
   ]
 }

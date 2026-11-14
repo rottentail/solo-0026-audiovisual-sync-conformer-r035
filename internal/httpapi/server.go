@@ -34,6 +34,20 @@ type createConformRequest struct {
 	MaxCorrectionMS *int   `json:"max_correction_ms"`
 }
 
+type programSegmentRequest struct {
+	AnalysisID string `json:"analysis_id"`
+	Range      *struct {
+		StartFrame *int `json:"start_frame"`
+		EndFrame   *int `json:"end_frame"`
+	} `json:"range"`
+}
+
+type createProgramRequest struct {
+	ProgramID       string                  `json:"program_id"`
+	MaxCorrectionMS *int                    `json:"max_correction_ms"`
+	Segments        []programSegmentRequest `json:"segments"`
+}
+
 func New(service *appservice.Service) *API {
 	return &API{service: service}
 }
@@ -48,6 +62,9 @@ func (api *API) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/sync-analyses/{analysis_id}/conforms", api.createConform)
 	mux.HandleFunc("GET /v1/conforms/{conform_id}", api.getConform)
 	mux.HandleFunc("GET /v1/conforms/{conform_id}/bundle", api.getBundle)
+	mux.HandleFunc("POST /v1/conform-programs", api.createProgram)
+	mux.HandleFunc("GET /v1/conform-programs/{program_id}", api.getProgram)
+	mux.HandleFunc("GET /v1/conform-programs/{program_id}/bundle", api.getProgramBundle)
 	return mux
 }
 
@@ -172,6 +189,69 @@ func (api *API) getBundle(w http.ResponseWriter, request *http.Request) {
 	w.Header().Set(
 		"Content-Disposition",
 		fmt.Sprintf(`attachment; filename="%s-review.zip"`, receipt.ConformID),
+	)
+	w.Header().Set("Content-Length", fmt.Sprintf("%d", len(bundle)))
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(bundle)
+}
+
+func (api *API) createProgram(w http.ResponseWriter, request *http.Request) {
+	var payload createProgramRequest
+	if err := decodeJSON(w, request, &payload); err != nil {
+		writeFailure(w, err)
+		return
+	}
+	maxCorrectionMS := domain.DefaultMaxCorrectionMS
+	if payload.MaxCorrectionMS != nil {
+		maxCorrectionMS = *payload.MaxCorrectionMS
+	}
+	segments := make([]domain.ProgramSegmentInput, 0, len(payload.Segments))
+	for _, segment := range payload.Segments {
+		input := domain.ProgramSegmentInput{AnalysisID: segment.AnalysisID}
+		if segment.Range != nil {
+			input.Range = domain.ProgramSegmentRange{
+				StartFrame: segment.Range.StartFrame,
+				EndFrame:   segment.Range.EndFrame,
+			}
+		}
+		segments = append(segments, input)
+	}
+	result, err := api.service.CreateProgram(domain.CreateProgramInput{
+		ProgramID:       payload.ProgramID,
+		MaxCorrectionMS: maxCorrectionMS,
+		Segments:        segments,
+	})
+	if err != nil {
+		writeFailure(w, err)
+		return
+	}
+	status := http.StatusCreated
+	if !result.Created {
+		status = http.StatusOK
+	}
+	writeJSON(w, status, result.Program)
+}
+
+func (api *API) getProgram(w http.ResponseWriter, request *http.Request) {
+	record, err := api.service.GetProgram(request.PathValue("program_id"))
+	if err != nil {
+		writeFailure(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, record)
+}
+
+func (api *API) getProgramBundle(w http.ResponseWriter, request *http.Request) {
+	id := request.PathValue("program_id")
+	bundle, receipt, err := api.service.ReadProgramBundle(id)
+	if err != nil {
+		writeFailure(w, err)
+		return
+	}
+	w.Header().Set("Content-Type", "application/zip")
+	w.Header().Set(
+		"Content-Disposition",
+		fmt.Sprintf(`attachment; filename="%s-program.zip"`, receipt.ProgramID),
 	)
 	w.Header().Set("Content-Length", fmt.Sprintf("%d", len(bundle)))
 	w.WriteHeader(http.StatusOK)

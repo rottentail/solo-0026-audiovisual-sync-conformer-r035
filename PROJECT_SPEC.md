@@ -58,6 +58,35 @@ geometry. The job commits a ZIP bundle containing:
 The completed receipt digest and byte count always match the visible ZIP.
 Failed jobs never expose a bundle route.
 
+### Conform program
+
+A `ConformProgram` joins several received materials, in review order, into one
+continuous picture stream and one continuous audio track. Each entry is one
+segment backed by its own ready `SyncAnalysis`, so every segment keeps the
+sync basis measured for its own material. A segment may select a half-open
+picture interval of its source take; without an interval it uses the whole
+take.
+
+The program renders all segments on one cumulative audio sample timeline.
+Each junction is the difference of two cumulative boundaries rather than an
+independently rounded segment duration, so the junction windows tile the exact
+total length: no audio is added or dropped where segments meet, and the final
+boundary equals the whole-program boundary regardless of segment count. Each
+segment is still aligned by the inverse of its own measured offset.
+
+All segments must share sample rate, channel count, picture geometry, frame
+rate, and chroma. The completed ZIP contains:
+
+- `audio-program.wav`;
+- `video-program.y4m`;
+- `conform-program-receipt.json`.
+
+The receipt records, per segment, the source take, source picture interval,
+measured and applied offset, applied samples, and output timeline placement,
+so every delivered frame and audio window is traceable to its source. The
+receipt digests and byte count always match the visible ZIP. A failed program
+never exposes a bundle route or a partial package.
+
 ## State machines
 
 ### Media take
@@ -94,6 +123,23 @@ or
 
 `completed` and `failed` are terminal. The bundle and receipt are written in a
 temporary directory and become visible only through one directory rename.
+
+### Conform program
+
+`queued -> rendering -> committing -> completed`
+
+or
+
+`queued -> rendering -> failed`
+
+or
+
+`rendering -> committing -> failed`
+
+It uses the same terminal rules and atomic directory publication as a conform
+job. A correction above the ceiling is recorded as a terminal failed program
+after the queued record is persisted, so an operator can read the failure even
+though no bundle exists.
 
 ## Workflows
 
@@ -135,6 +181,26 @@ Entry point: `POST /v1/sync-analyses/{analysis_id}/conforms`
 Success returns a completed job whose receipt and bundle routes agree. Failure
 returns a terminal job with a stable error code and no readable bundle.
 
+### 4. Join segments into a continuous conform program
+
+Entry point: `POST /v1/conform-programs`
+
+1. Validate the identifier, correction ceiling, segment count, and every
+   half-open picture interval.
+2. Resolve each segment's ready analysis and source take; require one distinct
+   sync basis per segment and matching media geometry across segments.
+3. Persist a queued program, then reject any segment whose correction exceeds
+   the ceiling as a terminal failed program.
+4. Align each segment by its own offset and join audio and picture on one
+   cumulative sample timeline.
+5. Build the per-segment receipt, ZIP bundle, and digests in a temporary
+   directory.
+6. Commit the directory atomically and complete the program.
+
+Success returns a completed program whose receipt traces every segment to its
+source take and interval and whose bundle route agrees. Failure returns a
+terminal program with a stable error code and no readable, partial bundle.
+
 ## Modules
 
 - `internal/httpapi`: public routing, JSON decoding, request limits, and error
@@ -162,6 +228,9 @@ The service listens on `/healthz` and these resource routes:
 - `POST /v1/sync-analyses/{analysis_id}/conforms`
 - `GET /v1/conforms/{conform_id}`
 - `GET /v1/conforms/{conform_id}/bundle`
+- `POST /v1/conform-programs`
+- `GET /v1/conform-programs/{program_id}`
+- `GET /v1/conform-programs/{program_id}/bundle`
 
 JSON errors use a stable envelope:
 
@@ -186,9 +255,12 @@ interfaces below:
 - terminal-state behavior for invalid and boundary requests;
 - atomic visibility of take directories and conform bundles.
 
-Until that stage, three bounded production workflow checks exercise the real
+Until that stage, bounded production workflow checks exercise the real
 HTTP routes, storage layout, media transforms, and persisted terminal records.
-They are not a substitute for the later test suite.
+They are not a substitute for the later test suite. The checks cover take
+admission, sync analysis, single-take conform, and the multi-segment conform
+program, including shared-timeline continuity, per-segment traceability, and
+the absence of a partial bundle on failure.
 
 ## Deferred testing boundary
 

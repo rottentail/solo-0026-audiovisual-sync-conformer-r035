@@ -51,6 +51,8 @@ func main() {
 		err = runAnalyzeCheck(ctx)
 	case "render-conform":
 		err = runRenderCheck(ctx)
+	case "render-program":
+		err = runProgramCheck(ctx)
 	default:
 		err = fmt.Errorf("unknown workflow %q", *workflow)
 	}

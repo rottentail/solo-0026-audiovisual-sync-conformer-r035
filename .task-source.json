@@ -276,6 +276,16 @@
       "workflow_id": "render-conform",
       "description": "Applying the exact audio correction versus refusing an offset beyond the operator ceiling and preserving identity-time picture",
       "observable_failure": "Audio is moved farther than requested, or a failed conform leaves a fetchable partial archive."
+    },
+    {
+      "workflow_id": "render-program",
+      "description": "Rounding each segment duration independently versus deriving every junction from one cumulative sample timeline while each segment keeps its own sync basis",
+      "observable_failure": "Audio appears or disappears at a segment junction, or the end of the program drifts farther from the picture as the segment count grows."
+    },
+    {
+      "workflow_id": "render-program",
+      "description": "Delivering a continuous multi-segment bundle versus guaranteeing every delivered frame and audio window traces back to its exact source take and picture interval",
+      "observable_failure": "A completed bundle cannot be mapped to its source intervals, or a failed program leaves a fetchable partial package."
     }
   ]
 }
